@@ -13,7 +13,10 @@ type DashboardProps = {
 export default function Dashboard({ data }: DashboardProps) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
 
-  console.log(hoveredNode)
+  const [showArrows, setShowArrows] = useState<boolean>(true)
+  const [showLabels, setShowLabels] = useState<boolean>(false)
+
+  // console.log(hoveredNode)
 
   // Get node details for sidebar
   const selectedNodeDetails = hoveredNode
@@ -37,6 +40,10 @@ export default function Dashboard({ data }: DashboardProps) {
     setEgoSearchQuery,
     locateSearchQuery,
     setLocateSearchQuery,
+    pathSearchQuery,
+    setPathSearchQuery,
+    pathSearchDepth,
+    setPathSearchDepth,
     intersectionMode,
     setIntersectionMode,
     showSecondDegree,
@@ -60,11 +67,6 @@ export default function Dashboard({ data }: DashboardProps) {
 
   const setLinkTypeForce = (type: string, value: number) => {
     setLinkTypeForces((prev) => ({ ...prev, [type]: value }))
-  }
-
-  function interactionSliderChange(numbers: number[]) {
-    setMinWeight(numbers[0])
-    setMaxWeight(numbers[1])
   }
 
   const toggleType = (type: string) => {
@@ -159,8 +161,33 @@ export default function Dashboard({ data }: DashboardProps) {
               placeholder="e.g. Mar de la Vida, Oceanfront"
               value={locateSearchQuery}
               onChange={(e) => setLocateSearchQuery(e.target.value)}
+              className="w-full p-2 border rounded text-sm mb-4"
+            />
+
+            <h3 className="font-semibold mb-2">Path Search (Connect Nodes)</h3>
+            <input
+              type="text"
+              placeholder="e.g. Mar de la Vida, Oceanfront"
+              value={pathSearchQuery}
+              onChange={(e) => setPathSearchQuery(e.target.value)}
               className="w-full p-2 border rounded text-sm mb-2"
             />
+            <div className="flex items-center gap-2 mb-4">
+              <label htmlFor="pathSearchDepth" className="text-sm">
+                Max Path Depth (Hops):
+              </label>
+              <input
+                type="number"
+                id="pathSearchDepth"
+                value={pathSearchDepth}
+                min={1}
+                max={6}
+                onChange={(e) =>
+                  setPathSearchDepth(parseInt(e.target.value) || 1)
+                }
+                className="w-16 p-1 border rounded text-sm"
+              />
+            </div>
 
             <div className="flex flex-wrap gap-2 mt-4">
               <h4 className="text-sm font-semibold w-full">Node Types:</h4>
@@ -232,6 +259,37 @@ export default function Dashboard({ data }: DashboardProps) {
               </div>
             )}
           </div>
+          <div className="mt-6 pt-4 border-t">
+            <h3 className="font-semibold mb-2">Visual Settings</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <input
+                type="checkbox"
+                id="showArrows"
+                checked={showArrows}
+                onChange={(e) => setShowArrows(e.target.checked)}
+              />
+              <label
+                htmlFor="showArrows"
+                className="text-sm cursor-pointer select-none"
+              >
+                Show Arrowheads
+              </label>
+
+              <input
+                type="checkbox"
+                id="showLabels"
+                checked={showLabels}
+                onChange={(e) => setShowLabels(e.target.checked)}
+                className="ml-4"
+              />
+              <label
+                htmlFor="showLabels"
+                className="text-sm cursor-pointer select-none"
+              >
+                Show Node IDs
+              </label>
+            </div>
+          </div>
           <div className="mt-auto bg-white p-4 rounded border">
             <h3 className="font-bold border-b pb-2 mb-2">Entity Details</h3>
             {selectedNodeDetails ? (
@@ -282,6 +340,8 @@ export default function Dashboard({ data }: DashboardProps) {
             hoveredNode={hoveredNode}
             setHoveredNode={setHoveredNode}
             onDoubleClickNode={handleDoubleClickNode}
+            showArrows={showArrows}
+            showLabels={showLabels}
             force={100}
             linkTypeForces={linkTypeForces}
             highlightedNodeIDs={matchedNodeIDs}

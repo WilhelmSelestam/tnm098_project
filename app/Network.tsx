@@ -12,6 +12,8 @@ type StarWarsNetworkProps = {
   force: number
   linkTypeForces?: Record<string, number>
   highlightedNodeIDs?: Set<string | number>
+  showArrows?: boolean
+  showLabels?: boolean
 }
 
 type NormalizedLink = d3.SimulationLinkDatum<node> & {
@@ -31,6 +33,8 @@ export default function StarWarsNetwork({
   force,
   linkTypeForces,
   highlightedNodeIDs,
+  showArrows = true,
+  showLabels = false,
 }: StarWarsNetworkProps) {
   const svgRef = useRef(null)
 
@@ -64,9 +68,25 @@ export default function StarWarsNetwork({
         mainGroup.attr("transform", event.transform)
       })
 
-    // TypeScript might need any here if the types aren't perfectly matching, but doing it correctly:
     // @ts-ignore
     svg.call(zoom)
+
+    svg
+      .append("defs")
+      .append("marker")
+      .attr("id", "arrowhead")
+      .attr("viewBox", "0 -5 10 10")
+      .attr("refX", 20) // Absolute offset in pixels (pushes arrow outside the node)
+      .attr("refY", 0)
+      .attr("orient", "auto")
+      .attr("markerWidth", 8) // Fixed width in pixels
+      .attr("markerHeight", 8) // Fixed height in pixels
+      .attr("markerUnits", "userSpaceOnUse") // <-- THE MAGIC FIX: Stops scaling with stroke-width
+      .attr("xoverflow", "visible")
+      .append("svg:path")
+      .attr("d", "M 0,-5 L 10 ,0 L 0,5")
+      .attr("fill", "#666") // Matches your line color
+      .style("stroke", "none")
 
     const defaultLinkStrength = 0.1
 
@@ -107,6 +127,7 @@ export default function StarWarsNetwork({
       .append("line")
       .attr("stroke", "#6666")
       .attr("stroke-width", (d) => Math.max(1, d.count ?? 1))
+      .attr("marker-end", "url(#arrowhead)")
 
     link.append("title").text((d) => {
       const sourceId = typeof d.source === "object" ? d.source.id : d.source
@@ -114,11 +135,26 @@ export default function StarWarsNetwork({
       return `${sourceId} - ${targetId}\nType: ${d.type}\nEdges bundled: ${d.count ?? 1}`
     })
 
-    const node = mainGroup
+    const nodeGroup = mainGroup
       .append("g")
-      .selectAll("circle")
+      .attr("class", "nodes")
+      .selectAll("g.node-group")
       .data(nodes)
       .enter()
+      .append("g")
+      .attr("class", "node-group")
+      .style("cursor", "pointer")
+      .call(drag(simulation))
+      .on("click", (event, d) => {
+        event.stopPropagation()
+        setHoveredNode((prev) => (prev === d.id ? null : (d.id as string)))
+      })
+      .on("dblclick", (event, d) => {
+        event.stopPropagation()
+        onDoubleClickNode?.(String(d.id))
+      })
+
+    const node = nodeGroup
       .append("circle")
       .attr("r", 5)
       .attr("fill", (d) => {
@@ -143,18 +179,17 @@ export default function StarWarsNetwork({
             return "#fff"
         }
       })
-      .style("cursor", "pointer")
-      .call(drag(simulation))
-      .on("click", (event, d) => {
-        event.stopPropagation()
-        setHoveredNode((prev) => (prev === d.id ? null : (d.id as string)))
-      })
-      .on("dblclick", (event, d) => {
-        event.stopPropagation()
-        onDoubleClickNode?.(String(d.id))
-      })
 
-    node
+    nodeGroup
+      .append("text")
+      .text((d) => String(d.id))
+      .attr("x", 8)
+      .attr("y", "0.31em")
+      .style("font-size", "10px")
+      .style("fill", "#ccc")
+      .style("pointer-events", "none")
+
+    nodeGroup
       .append("title")
       .text(
         (d) =>
@@ -168,7 +203,7 @@ export default function StarWarsNetwork({
         .attr("x2", (d) => (d.target as node).x ?? 0)
         .attr("y2", (d) => (d.target as node).y ?? 0)
 
-      node.attr("cx", (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0)
+      nodeGroup.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`)
     })
 
     return () => {
@@ -194,9 +229,9 @@ export default function StarWarsNetwork({
       })
     }
 
-    // 2. Apply combined styles to nodes
+    // 2. Apply combined styles to nodes and text via the groups
     svg
-      .selectAll<SVGCircleElement, node>("circle")
+      .selectAll<SVGGElement, node>("g.node-group")
       .attr("opacity", (d: any) => {
         // Dim if hovering, and this node isn't connected AND isn't explicitly highlighted
         if (
@@ -210,6 +245,10 @@ export default function StarWarsNetwork({
           return 1
         return 1
       })
+
+    // Apply strict rendering properties onto the inner circle
+    svg
+      .selectAll<SVGCircleElement, node>("g.node-group circle")
       .attr("stroke", (d: any) => {
         if (d.id === hoveredNode) return "white"
         if (hasHighlightQuery && highlightedNodeIDs.has(d.id)) return "#f59e0b" // Highlight color
@@ -235,25 +274,35 @@ export default function StarWarsNetwork({
       }
       return 1
     })
-  }, [hoveredNode, data, highlightedNodeIDs])
+
+    // Toggle Node ID Labels using CSS display
+    svg
+      .selectAll("g.node-group text")
+      .style("display", showLabels ? "block" : "none")
+
+    // Toggle Arrowheads by adding/removing the marker-end attribute
+    svg
+      .selectAll("line")
+      .attr("marker-end", showArrows ? "url(#arrowhead)" : null)
+  }, [hoveredNode, data, highlightedNodeIDs, showArrows, showLabels])
 
   const drag = (simulation: d3.Simulation<node, NormalizedLink>) => {
-    function dragstarted(event: d3.D3DragEvent<SVGCircleElement, node, node>) {
+    function dragstarted(event: d3.D3DragEvent<SVGGElement, node, node>) {
       if (!event.active) simulation.alphaTarget(0.3).restart()
       event.subject.fx = event.subject.x
       event.subject.fy = event.subject.y
     }
-    function dragged(event: d3.D3DragEvent<SVGCircleElement, node, node>) {
+    function dragged(event: d3.D3DragEvent<SVGGElement, node, node>) {
       event.subject.fx = event.x
       event.subject.fy = event.y
     }
-    function dragended(event: d3.D3DragEvent<SVGCircleElement, node, node>) {
+    function dragended(event: d3.D3DragEvent<SVGGElement, node, node>) {
       if (!event.active) simulation.alphaTarget(0)
       event.subject.fx = null
       event.subject.fy = null
     }
     return d3
-      .drag<SVGCircleElement, node>()
+      .drag<SVGGElement, node>()
       .on("start", dragstarted)
       .on("drag", dragged)
       .on("end", dragended)

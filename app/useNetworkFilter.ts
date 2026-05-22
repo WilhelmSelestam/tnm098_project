@@ -12,6 +12,8 @@ export const useNetworkFilter = (initialData: networkData) => {
   )
   const [egoSearchQuery, setEgoSearchQuery] = useState<string>("")
   const [locateSearchQuery, setLocateSearchQuery] = useState<string>("")
+  const [pathSearchQuery, setPathSearchQuery] = useState<string>("")
+  const [pathSearchDepth, setPathSearchDepth] = useState<number>(3)
   const [intersectionMode, setIntersectionMode] = useState<boolean>(false)
   const [showSecondDegree, setShowSecondDegree] = useState<boolean>(true)
 
@@ -77,9 +79,15 @@ export const useNetworkFilter = (initialData: networkData) => {
       return { nodes: [], links: [] }
     }
 
-    const query = egoSearchQuery.toLowerCase().trim()
+    const egoQuery = egoSearchQuery.toLowerCase().trim()
+    const pathQuery = pathSearchQuery.toLowerCase().trim()
 
-    const queries = query
+    const queries = egoQuery
+      .split(",")
+      .map((q) => q.trim())
+      .filter((q) => q.length > 0)
+
+    const pathQueries = pathQuery
       .split(",")
       .map((q) => q.trim())
       .filter((q) => q.length > 0)
@@ -105,7 +113,99 @@ export const useNetworkFilter = (initialData: networkData) => {
     let finalConnectedNodeIDs = new Set<string | number>()
     let validLinks: link[] = []
 
-    if (queries.length > 0) {
+    if (pathQueries.length > 0) {
+      // Path Search Mode
+      const pMatches = pathQueries.map((q) =>
+        initialData.nodes
+          .filter(
+            (node) =>
+              String(node.id).toLowerCase().includes(q) &&
+              evaluateNodeTypes(node),
+          )
+          .map((n) => n.id),
+      )
+
+      const allPTargets = new Set(pMatches.flat())
+
+      if (allPTargets.size > 1) {
+        // Build adjacency list for BFS
+        const adj = new Map<string | number, (string | number)[]>()
+        initialData.links.forEach((l) => {
+          if (!evaluateLinkTypes(l)) return
+          const u = typeof l.source === "object" ? l.source.id : l.source
+          const v = typeof l.target === "object" ? l.target.id : l.target
+          if (!adj.has(u)) adj.set(u, [])
+          if (!adj.has(v)) adj.set(v, [])
+          adj.get(u)!.push(v)
+          adj.get(v)!.push(u)
+        })
+
+        const targetArray = Array.from(allPTargets)
+        const distances = new Map<
+          string | number,
+          Map<string | number, number>
+        >()
+
+        targetArray.forEach((t) => {
+          const dist = new Map<string | number, number>()
+          const queue: [string | number, number][] = [[t, 0]]
+          dist.set(t, 0)
+
+          let head = 0
+          while (head < queue.length) {
+            const [curr, d] = queue[head++]
+            if (d >= pathSearchDepth) continue
+
+            const neighbors = adj.get(curr) || []
+            for (const n of neighbors) {
+              if (!dist.has(n)) {
+                dist.set(n, d + 1)
+                queue.push([n, d + 1])
+              }
+            }
+          }
+          distances.set(t, dist)
+        })
+
+        const nodesOnPath = new Set<string | number>(allPTargets)
+
+        targetArray.forEach((u, i) => {
+          for (let j = i + 1; j < targetArray.length; j++) {
+            const v = targetArray[j]
+            const distU = distances.get(u)!
+            const distV = distances.get(v)!
+
+            distU.forEach((d_u, nodeX) => {
+              if (distV.has(nodeX)) {
+                const d_v = distV.get(nodeX)!
+                if (d_u + d_v <= pathSearchDepth) {
+                  nodesOnPath.add(nodeX)
+                }
+              }
+            })
+          }
+        })
+
+        nodesOnPath.forEach((n) => finalConnectedNodeIDs.add(n))
+        allPTargets.forEach((n) => coreNodesToDisplay.add(n))
+
+        validLinks = initialData.links.filter((link) => {
+          if (!evaluateLinkTypes(link)) return false
+          const sourceId =
+            typeof link.source === "object" ? link.source.id : link.source
+          const targetId =
+            typeof link.target === "object" ? link.target.id : link.target
+          return (
+            finalConnectedNodeIDs.has(sourceId) &&
+            finalConnectedNodeIDs.has(targetId)
+          )
+        })
+      } else {
+        // Fallback if only 1 target matched, just display it
+        allPTargets.forEach((n) => coreNodesToDisplay.add(n))
+        validLinks = [] // No connecting links for 1 node
+      }
+    } else if (queries.length > 0) {
       const queryMatches = queries.map((q) => {
         return initialData.nodes
           .filter(
@@ -272,6 +372,10 @@ export const useNetworkFilter = (initialData: networkData) => {
     setEgoSearchQuery,
     locateSearchQuery,
     setLocateSearchQuery,
+    pathSearchQuery,
+    setPathSearchQuery,
+    pathSearchDepth,
+    setPathSearchDepth,
     intersectionMode,
     setIntersectionMode,
     showSecondDegree,
