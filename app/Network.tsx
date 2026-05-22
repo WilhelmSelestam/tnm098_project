@@ -7,7 +7,7 @@ import { node, networkData, link } from "./page"
 type StarWarsNetworkProps = {
   data: networkData
   hoveredNode?: string | null
-  setHoveredNode?: Dispatch<SetStateAction<string | null>>
+  setHoveredNode: Dispatch<SetStateAction<string | null>>
   onDoubleClickNode?: (nodeId: string) => void
   force: number
   linkTypeForces?: Record<string, number>
@@ -52,7 +52,7 @@ export default function StarWarsNetwork({
       .attr("height", height)
       .style("background-color", "#111")
       .on("click", () => {
-        setHoveredNode?.(null)
+        setHoveredNode(null)
       })
 
     const mainGroup = svg.append("g").attr("class", "main-group")
@@ -78,12 +78,21 @@ export default function StarWarsNetwork({
           .forceLink<node, NormalizedLink>(links)
           .id((d) => d.id as number | string)
           .strength((l: any) => {
-            const t = l.type || ""
-            const v =
-              linkTypeForces && linkTypeForces[t] != null
-                ? linkTypeForces[t]
-                : defaultLinkStrength
-            // ensure within reasonable bounds for d3 (avoid zero)
+            if (!l.type) return defaultLinkStrength
+
+            // Handle bundled types by splitting the comma-separated string
+            const types = l.type.split(",").map((t: string) => t.trim())
+            let totalForce = 0
+            let count = 0
+
+            types.forEach((t: string) => {
+              if (linkTypeForces && linkTypeForces[t] != null) {
+                totalForce += linkTypeForces[t]
+                count++
+              }
+            })
+
+            const v = count > 0 ? totalForce / count : defaultLinkStrength
             return Math.max(0.0001, v)
           }),
       )
@@ -137,8 +146,8 @@ export default function StarWarsNetwork({
       .style("cursor", "pointer")
       .call(drag(simulation))
       .on("click", (event, d) => {
-        event.stopPropagation
-        setHoveredNode?.((prev) => (prev === d.id ? null : (d.id as string)))
+        event.stopPropagation()
+        setHoveredNode((prev) => (prev === d.id ? null : (d.id as string)))
       })
       .on("dblclick", (event, d) => {
         event.stopPropagation()
@@ -174,6 +183,7 @@ export default function StarWarsNetwork({
     const hasHighlightQuery = highlightedNodeIDs && highlightedNodeIDs.size > 0
     const connectedNodes = new Set<string | number>()
 
+    // 1. Calculate connections if a node is hovered
     if (hoveredNode) {
       connectedNodes.add(hoveredNode)
       svg.selectAll("line").each((d: any) => {
@@ -184,42 +194,39 @@ export default function StarWarsNetwork({
       })
     }
 
+    // 2. Apply combined styles to nodes
     svg
       .selectAll<SVGCircleElement, node>("circle")
       .attr("opacity", (d: any) => {
+        // Dim if hovering, and this node isn't connected AND isn't explicitly highlighted
         if (
           hoveredNode &&
           !connectedNodes.has(d.id) &&
           !(hasHighlightQuery && highlightedNodeIDs.has(d.id))
         )
           return 0.1
+        // Dim if we are searching for a highlight, and this node isn't it, and we aren't hovering
         if (hasHighlightQuery && !highlightedNodeIDs.has(d.id) && !hoveredNode)
           return 0.2
         return 1
       })
       .attr("stroke", (d: any) => {
         if (d.id === hoveredNode) return "white"
-        if (hasHighlightQuery && highlightedNodeIDs.has(d.id)) return "yellow"
+        if (hasHighlightQuery && highlightedNodeIDs.has(d.id)) return "#f59e0b" // Highlight color
         return null
       })
       .attr("stroke-width", (d: any) => {
-        if (
-          d.id === hoveredNode ||
-          (hasHighlightQuery && highlightedNodeIDs.has(d.id))
-        )
-          return 2
+        if (d.id === hoveredNode) return 2
+        if (hasHighlightQuery && highlightedNodeIDs.has(d.id)) return 3
         return null
       })
       .attr("r", (d: any) => {
-        const baseRadius = 5
-        if (
-          d.id === hoveredNode ||
-          (hasHighlightQuery && highlightedNodeIDs.has(d.id))
-        )
-          return baseRadius + 3
-        return baseRadius
+        const isHighlighted = hasHighlightQuery && highlightedNodeIDs.has(d.id)
+        const baseRadius = isHighlighted ? 7 : 5
+        return d.id === hoveredNode ? baseRadius + 3 : baseRadius
       })
 
+    // 3. Apply combined styles to links
     svg.selectAll("line").attr("opacity", (d: any) => {
       if (hoveredNode) {
         const sourceId = typeof d.source === "object" ? d.source.id : d.source
@@ -229,33 +236,6 @@ export default function StarWarsNetwork({
       return 1
     })
   }, [hoveredNode, data, highlightedNodeIDs])
-
-  useEffect(() => {
-    if (!svgRef.current) return
-    const svg = d3.select(svgRef.current)
-    const hasHighlights = !!highlightedNodeIDs && highlightedNodeIDs.size > 0
-
-    if (!hasHighlights) {
-      svg.selectAll<SVGCircleElement, node>("circle").attr("stroke", null)
-      return
-    }
-
-    svg
-      .selectAll<SVGCircleElement, node>("circle")
-      .attr("stroke", (d: any) => {
-        if (d.id === hoveredNode) return "white"
-        return highlightedNodeIDs?.has(d.id) ? "#f59e0b" : null
-      })
-      .attr("stroke-width", (d: any) => {
-        if (d.id === hoveredNode) return 2
-        return highlightedNodeIDs?.has(d.id) ? 3 : null
-      })
-      .attr("r", (d: any) => {
-        if (d.id === hoveredNode) return 8
-        return highlightedNodeIDs?.has(d.id) ? 7 : 5
-      })
-      .attr("opacity", 1)
-  }, [highlightedNodeIDs, hoveredNode])
 
   const drag = (simulation: d3.Simulation<node, NormalizedLink>) => {
     function dragstarted(event: d3.D3DragEvent<SVGCircleElement, node, node>) {

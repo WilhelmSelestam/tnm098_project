@@ -13,6 +13,8 @@ type DashboardProps = {
 export default function Dashboard({ data }: DashboardProps) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
 
+  console.log(hoveredNode)
+
   // Get node details for sidebar
   const selectedNodeDetails = hoveredNode
     ? data.nodes.find((n: node) => n.id === hoveredNode)
@@ -37,6 +39,8 @@ export default function Dashboard({ data }: DashboardProps) {
     setLocateSearchQuery,
     intersectionMode,
     setIntersectionMode,
+    showSecondDegree,
+    setShowSecondDegree,
   } = useNetworkFilter(data)
 
   const [linkTypeForces, setLinkTypeForces] = useState<Record<string, number>>(
@@ -133,6 +137,20 @@ export default function Dashboard({ data }: DashboardProps) {
               >
                 Intersection
               </label>
+
+              <input
+                type="checkbox"
+                id="showSecondDegree"
+                checked={showSecondDegree}
+                onChange={(e) => setShowSecondDegree(e.target.checked)}
+                className="ml-4"
+              />
+              <label
+                htmlFor="showSecondDegree"
+                className="text-sm cursor-pointer select-none"
+              >
+                2nd Degree
+              </label>
             </div>
 
             <h3 className="font-semibold mb-2">Locate & Highlight Nodes</h3>
@@ -214,7 +232,7 @@ export default function Dashboard({ data }: DashboardProps) {
               </div>
             )}
           </div>
-          <div className="mt-auto bg-white p-4 rounded border grow overflow-y-auto">
+          <div className="mt-auto bg-white p-4 rounded border">
             <h3 className="font-bold border-b pb-2 mb-2">Entity Details</h3>
             {selectedNodeDetails ? (
               <div className="text-sm wrap-break-word">
@@ -248,10 +266,7 @@ export default function Dashboard({ data }: DashboardProps) {
                 </p>
               </div>
             ) : (
-              <p className="text-sm text-gray-500 italic">
-                Click or hover (if implemented) a node in the graph to see
-                details.
-              </p>
+              <p className="text-sm text-gray-500 italic"></p>
             )}
           </div>
 

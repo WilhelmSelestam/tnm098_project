@@ -13,6 +13,7 @@ export const useNetworkFilter = (initialData: networkData) => {
   const [egoSearchQuery, setEgoSearchQuery] = useState<string>("")
   const [locateSearchQuery, setLocateSearchQuery] = useState<string>("")
   const [intersectionMode, setIntersectionMode] = useState<boolean>(false)
+  const [showSecondDegree, setShowSecondDegree] = useState<boolean>(true)
 
   const allNodeTypes = useMemo(() => {
     if (!initialData?.nodes) return []
@@ -129,7 +130,21 @@ export const useNetworkFilter = (initialData: networkData) => {
           if (matchSet.has(sourceId)) neighborSet.add(targetId)
           if (matchSet.has(targetId)) neighborSet.add(sourceId)
         })
-        return neighborSet
+
+        if (!showSecondDegree) return neighborSet
+
+        const secondDegreeSet = new Set(neighborSet)
+        initialData.links.forEach((link) => {
+          if (!evaluateLinkTypes(link)) return
+          const sourceId =
+            typeof link.source === "object" ? link.source.id : link.source
+          const targetId =
+            typeof link.target === "object" ? link.target.id : link.target
+
+          if (neighborSet.has(sourceId)) secondDegreeSet.add(targetId)
+          if (neighborSet.has(targetId)) secondDegreeSet.add(sourceId)
+        })
+        return secondDegreeSet
       })
 
       if (intersectionMode && queries.length > 1) {
@@ -188,21 +203,10 @@ export const useNetworkFilter = (initialData: networkData) => {
         const targetId =
           typeof link.target === "object" ? link.target.id : link.target
 
-        return (
-          validNodeIds.size === 0 ||
-          validNodeIds.has(sourceId) ||
-          validNodeIds.has(targetId)
-        )
+        // FIX: Strictly require BOTH source and target to be in the valid node set
+        return validNodeIds.has(sourceId) && validNodeIds.has(targetId)
       })
 
-      validLinks.forEach((link) => {
-        const sourceId =
-          typeof link.source === "object" ? link.source.id : link.source
-        const targetId =
-          typeof link.target === "object" ? link.target.id : link.target
-        finalConnectedNodeIDs.add(sourceId)
-        finalConnectedNodeIDs.add(targetId)
-      })
       coreNodesToDisplay = validNodeIds
     }
 
@@ -249,6 +253,7 @@ export const useNetworkFilter = (initialData: networkData) => {
     selectedEdgeTypes,
     egoSearchQuery,
     intersectionMode,
+    showSecondDegree,
   ])
 
   return {
@@ -270,5 +275,7 @@ export const useNetworkFilter = (initialData: networkData) => {
     setLocateSearchQuery,
     intersectionMode,
     setIntersectionMode,
+    showSecondDegree,
+    setShowSecondDegree,
   }
 }
