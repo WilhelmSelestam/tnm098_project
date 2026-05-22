@@ -110,8 +110,7 @@ export const useNetworkFilter = (initialData: networkData) => {
         return initialData.nodes
           .filter(
             (node) =>
-              String(node.id).toLowerCase().includes(q) &&
-              evaluateNodeTypes(node),
+              String(node.id).toLowerCase() === q && evaluateNodeTypes(node),
           )
           .map((n) => n.id)
       })

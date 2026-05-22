@@ -204,10 +204,10 @@ export default function StarWarsNetwork({
           !connectedNodes.has(d.id) &&
           !(hasHighlightQuery && highlightedNodeIDs.has(d.id))
         )
-          return 0.1
+          return 1
         // Dim if we are searching for a highlight, and this node isn't it, and we aren't hovering
         if (hasHighlightQuery && !highlightedNodeIDs.has(d.id) && !hoveredNode)
-          return 0.2
+          return 1
         return 1
       })
       .attr("stroke", (d: any) => {
