@@ -8,7 +8,10 @@ type StarWarsNetworkProps = {
   data: networkData
   hoveredNode?: string | null
   setHoveredNode?: Dispatch<SetStateAction<string | null>>
+  onDoubleClickNode?: (nodeId: string) => void
   force: number
+  linkTypeForces?: Record<string, number>
+  highlightedNodeIDs?: Set<string | number>
 }
 
 type NormalizedLink = d3.SimulationLinkDatum<node> & {
@@ -17,13 +20,17 @@ type NormalizedLink = d3.SimulationLinkDatum<node> & {
   type?: string
   weight?: number
   dataset?: string
+  count?: number
 }
 
 export default function StarWarsNetwork({
   data,
   hoveredNode,
   setHoveredNode,
+  onDoubleClickNode,
   force,
+  linkTypeForces,
+  highlightedNodeIDs,
 }: StarWarsNetworkProps) {
   const svgRef = useRef(null)
 
@@ -48,42 +55,63 @@ export default function StarWarsNetwork({
         setHoveredNode?.(null)
       })
 
+    const mainGroup = svg.append("g").attr("class", "main-group")
+
+    const zoom = d3
+      .zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.1, 10])
+      .on("zoom", (event) => {
+        mainGroup.attr("transform", event.transform)
+      })
+
+    // TypeScript might need any here if the types aren't perfectly matching, but doing it correctly:
+    // @ts-ignore
+    svg.call(zoom)
+
+    const defaultLinkStrength = 0.1
+
     const simulation = d3
       .forceSimulation<node, NormalizedLink>(nodes)
       .force(
         "link",
         d3
           .forceLink<node, NormalizedLink>(links)
-          .id((d) => d.id as number | string),
+          .id((d) => d.id as number | string)
+          .strength((l: any) => {
+            const t = l.type || ""
+            const v =
+              linkTypeForces && linkTypeForces[t] != null
+                ? linkTypeForces[t]
+                : defaultLinkStrength
+            // ensure within reasonable bounds for d3 (avoid zero)
+            return Math.max(0.0001, v)
+          }),
       )
       .force("charge", d3.forceManyBody().strength(-force))
       .force("center", d3.forceCenter(width / 2, height / 2))
 
-    const link = svg
+    const link = mainGroup
       .append("g")
       .selectAll("line")
       .data(links)
       .enter()
       .append("line")
       .attr("stroke", "#6666")
-      // use weight for thickness if available
-      .attr("stroke-width", (d) => Math.sqrt(Math.sqrt(d.weight ?? 1)))
+      .attr("stroke-width", (d) => Math.max(1, d.count ?? 1))
 
     link.append("title").text((d) => {
       const sourceId = typeof d.source === "object" ? d.source.id : d.source
       const targetId = typeof d.target === "object" ? d.target.id : d.target
-      return `${sourceId} - ${targetId}\nType: ${d.type}\nWeight: ${d.weight}`
+      return `${sourceId} - ${targetId}\nType: ${d.type}\nEdges bundled: ${d.count ?? 1}`
     })
 
-    const node = svg
+    const node = mainGroup
       .append("g")
       .selectAll("circle")
       .data(nodes)
       .enter()
       .append("circle")
-      // adjust radius to be uniform for now, can be configured later
       .attr("r", 5)
-      // color by type
       .attr("fill", (d) => {
         switch (d.type) {
           case "person":
@@ -109,8 +137,12 @@ export default function StarWarsNetwork({
       .style("cursor", "pointer")
       .call(drag(simulation))
       .on("click", (event, d) => {
-        event.stopPropagation() // no svg background click
+        event.stopPropagation
         setHoveredNode?.((prev) => (prev === d.id ? null : (d.id as string)))
+      })
+      .on("dblclick", (event, d) => {
+        event.stopPropagation()
+        onDoubleClickNode?.(String(d.id))
       })
 
     node
@@ -133,49 +165,97 @@ export default function StarWarsNetwork({
     return () => {
       simulation.stop()
     }
-  }, [data, setHoveredNode, force])
+  }, [data, setHoveredNode, onDoubleClickNode, force, linkTypeForces])
 
   useEffect(() => {
     if (!svgRef.current) return
     const svg = d3.select(svgRef.current)
 
-    if (!hoveredNode) {
-      svg
-        .selectAll<SVGCircleElement, node>("circle")
-        .attr("opacity", 1)
-        .attr("stroke", null)
-        .attr("stroke-width", null)
-        .attr("r", 5)
-      svg.selectAll("line").attr("opacity", 1)
-      return
+    const hasHighlightQuery = highlightedNodeIDs && highlightedNodeIDs.size > 0
+    const connectedNodes = new Set<string | number>()
+
+    if (hoveredNode) {
+      connectedNodes.add(hoveredNode)
+      svg.selectAll("line").each((d: any) => {
+        const sourceId = typeof d.source === "object" ? d.source.id : d.source
+        const targetId = typeof d.target === "object" ? d.target.id : d.target
+        if (sourceId === hoveredNode) connectedNodes.add(targetId)
+        if (targetId === hoveredNode) connectedNodes.add(sourceId)
+      })
     }
 
-    const connectedNodes = new Set<string | number>()
-    connectedNodes.add(hoveredNode)
-
-    svg.selectAll("line").each((d: any) => {
-      const sourceId = typeof d.source === "object" ? d.source.id : d.source
-      const targetId = typeof d.target === "object" ? d.target.id : d.target
-      if (sourceId === hoveredNode) connectedNodes.add(targetId)
-      if (targetId === hoveredNode) connectedNodes.add(sourceId)
-    })
-
     svg
-      .selectAll("circle")
-      .attr("opacity", (d: any) => (connectedNodes.has(d.id) ? 1 : 0.1))
-      .attr("stroke", (d: any) => (d.id === hoveredNode ? "white" : null))
-      .attr("stroke-width", (d: any) => (d.id === hoveredNode ? 2 : null))
+      .selectAll<SVGCircleElement, node>("circle")
+      .attr("opacity", (d: any) => {
+        if (
+          hoveredNode &&
+          !connectedNodes.has(d.id) &&
+          !(hasHighlightQuery && highlightedNodeIDs.has(d.id))
+        )
+          return 0.1
+        if (hasHighlightQuery && !highlightedNodeIDs.has(d.id) && !hoveredNode)
+          return 0.2
+        return 1
+      })
+      .attr("stroke", (d: any) => {
+        if (d.id === hoveredNode) return "white"
+        if (hasHighlightQuery && highlightedNodeIDs.has(d.id)) return "yellow"
+        return null
+      })
+      .attr("stroke-width", (d: any) => {
+        if (
+          d.id === hoveredNode ||
+          (hasHighlightQuery && highlightedNodeIDs.has(d.id))
+        )
+          return 2
+        return null
+      })
       .attr("r", (d: any) => {
         const baseRadius = 5
-        return d.id === hoveredNode ? baseRadius + 3 : baseRadius
+        if (
+          d.id === hoveredNode ||
+          (hasHighlightQuery && highlightedNodeIDs.has(d.id))
+        )
+          return baseRadius + 3
+        return baseRadius
       })
 
     svg.selectAll("line").attr("opacity", (d: any) => {
-      const sourceId = typeof d.source === "object" ? d.source.id : d.source
-      const targetId = typeof d.target === "object" ? d.target.id : d.target
-      return sourceId === hoveredNode || targetId === hoveredNode ? 1 : 0.05
+      if (hoveredNode) {
+        const sourceId = typeof d.source === "object" ? d.source.id : d.source
+        const targetId = typeof d.target === "object" ? d.target.id : d.target
+        return sourceId === hoveredNode || targetId === hoveredNode ? 1 : 0.05
+      }
+      return 1
     })
-  }, [hoveredNode, data])
+  }, [hoveredNode, data, highlightedNodeIDs])
+
+  useEffect(() => {
+    if (!svgRef.current) return
+    const svg = d3.select(svgRef.current)
+    const hasHighlights = !!highlightedNodeIDs && highlightedNodeIDs.size > 0
+
+    if (!hasHighlights) {
+      svg.selectAll<SVGCircleElement, node>("circle").attr("stroke", null)
+      return
+    }
+
+    svg
+      .selectAll<SVGCircleElement, node>("circle")
+      .attr("stroke", (d: any) => {
+        if (d.id === hoveredNode) return "white"
+        return highlightedNodeIDs?.has(d.id) ? "#f59e0b" : null
+      })
+      .attr("stroke-width", (d: any) => {
+        if (d.id === hoveredNode) return 2
+        return highlightedNodeIDs?.has(d.id) ? 3 : null
+      })
+      .attr("r", (d: any) => {
+        if (d.id === hoveredNode) return 8
+        return highlightedNodeIDs?.has(d.id) ? 7 : 5
+      })
+      .attr("opacity", 1)
+  }, [highlightedNodeIDs, hoveredNode])
 
   const drag = (simulation: d3.Simulation<node, NormalizedLink>) => {
     function dragstarted(event: d3.D3DragEvent<SVGCircleElement, node, node>) {

@@ -6,9 +6,9 @@ export interface link extends d3.SimulationLinkDatum<node> {
   source: string | number | node
   target: string | number | node
   type?: string
-  weight?: number
   dataset?: string
   key?: number
+  count?: number
 }
 
 export interface node extends d3.SimulationNodeDatum {

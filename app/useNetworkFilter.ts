@@ -1,39 +1,102 @@
 import { useMemo, useState } from "react"
 import { networkData, node, link } from "./page"
 
+export const UNKNOWN_NODE_TYPE = "__unknown_node_type__"
+
 export const useNetworkFilter = (initialData: networkData) => {
   const [minWeight, setMinWeight] = useState<number>(0)
   const [maxWeight, setMaxWeight] = useState<number>(1)
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
-  const [searchQuery, setSearchQuery] = useState<string>("")
+  const [selectedEdgeTypes, setSelectedEdgeTypes] = useState<Set<string>>(
+    new Set(),
+  )
+  const [egoSearchQuery, setEgoSearchQuery] = useState<string>("")
+  const [locateSearchQuery, setLocateSearchQuery] = useState<string>("")
   const [intersectionMode, setIntersectionMode] = useState<boolean>(false)
 
   const allNodeTypes = useMemo(() => {
     if (!initialData?.nodes) return []
     const types = new Set<string>()
+    let hasUnknownTypeNodes = false
     initialData.nodes.forEach((n) => {
-      if (n.type) types.add(n.type)
+      if (n.type && n.type.trim().length > 0) {
+        types.add(n.type)
+      } else {
+        hasUnknownTypeNodes = true
+      }
+    })
+    const sortedTypes = Array.from(types).sort()
+    if (hasUnknownTypeNodes) sortedTypes.push(UNKNOWN_NODE_TYPE)
+    return sortedTypes
+  }, [initialData])
+
+  const allEdgeTypes = useMemo(() => {
+    if (!initialData?.links) return []
+    const types = new Set<string>()
+    initialData.links.forEach((l) => {
+      if (l.type) types.add(l.type)
     })
     return Array.from(types).sort()
   }, [initialData])
+
+  const matchedNodeIDs = useMemo(() => {
+    if (!initialData?.nodes) return new Set<string | number>()
+
+    const query = locateSearchQuery.toLowerCase().trim()
+    const queries = query
+      .split(",")
+      .map((q) => q.trim())
+      .filter((q) => q.length > 0)
+
+    if (queries.length === 0) return new Set<string | number>()
+
+    const matches = queries
+      .map((q) => {
+        return initialData.nodes
+          .filter((node) => String(node.id).toLowerCase().includes(q))
+          .filter((node) => {
+            const isUnknownNodeType =
+              !node.type || node.type.trim().length === 0
+            return (
+              selectedTypes.size === 0 ||
+              (isUnknownNodeType
+                ? selectedTypes.has(UNKNOWN_NODE_TYPE)
+                : selectedTypes.has(node.type as string))
+            )
+          })
+          .map((n) => n.id)
+      })
+      .flat()
+
+    return new Set(matches)
+  }, [initialData, locateSearchQuery, selectedTypes])
 
   const filteredData = useMemo<networkData>(() => {
     if (!initialData || !initialData.nodes || !initialData.links) {
       return { nodes: [], links: [] }
     }
 
-    const query = searchQuery.toLowerCase().trim()
+    const query = egoSearchQuery.toLowerCase().trim()
 
-    // 1. Parse search query for multiple terms
     const queries = query
       .split(",")
       .map((q) => q.trim())
       .filter((q) => q.length > 0)
 
-    // Evaluate validity of nodes based on type
     const evaluateNodeTypes = (node: node) => {
+      const isUnknownNodeType = !node.type || node.type.trim().length === 0
       return (
-        selectedTypes.size === 0 || (node.type && selectedTypes.has(node.type))
+        selectedTypes.size === 0 ||
+        (isUnknownNodeType
+          ? selectedTypes.has(UNKNOWN_NODE_TYPE)
+          : selectedTypes.has(node.type as string))
+      )
+    }
+
+    const evaluateLinkTypes = (link: link) => {
+      return (
+        selectedEdgeTypes.size === 0 ||
+        (link.type && selectedEdgeTypes.has(link.type))
       )
     }
 
@@ -42,7 +105,6 @@ export const useNetworkFilter = (initialData: networkData) => {
     let validLinks: link[] = []
 
     if (queries.length > 0) {
-      // Find matching nodes for each distinct query
       const queryMatches = queries.map((q) => {
         return initialData.nodes
           .filter(
@@ -53,14 +115,12 @@ export const useNetworkFilter = (initialData: networkData) => {
           .map((n) => n.id)
       })
 
-      // For each set of matches, find their 1st-degree neighbors
       const queryNeighborsList = queryMatches.map((matchingIds) => {
         const neighborSet = new Set<string | number>()
         const matchSet = new Set(matchingIds)
 
         initialData.links.forEach((link) => {
-          const linkW = link.weight ?? 1
-          if (linkW < minWeight || linkW > maxWeight) return
+          if (!evaluateLinkTypes(link)) return
           const sourceId =
             typeof link.source === "object" ? link.source.id : link.source
           const targetId =
@@ -73,7 +133,6 @@ export const useNetworkFilter = (initialData: networkData) => {
       })
 
       if (intersectionMode && queries.length > 1) {
-        // Intersection mode: keep only neighbors that appear in ALL query neighbor sets
         if (queryNeighborsList.length > 0) {
           let intersection = new Set(queryNeighborsList[0])
           for (let i = 1; i < queryNeighborsList.length; i++) {
@@ -83,15 +142,12 @@ export const useNetworkFilter = (initialData: networkData) => {
             )
           }
 
-          // Also keep the originally searched nodes so we can see what connects them
           const allCoreMatches = new Set(queryMatches.flat())
 
-          // The final display set
           finalConnectedNodeIDs = intersection
           coreNodesToDisplay = allCoreMatches
         }
       } else {
-        // Union mode (or single query): just combine all core nodes and their neighbors
         const allCoreMatches = new Set(queryMatches.flat())
         coreNodesToDisplay = allCoreMatches
 
@@ -103,23 +159,14 @@ export const useNetworkFilter = (initialData: networkData) => {
         finalConnectedNodeIDs = allNeighbors
       }
 
-      // Filter links to only those between nodes in our final display sets
-      const allDisplayedNodes = new Set([
-        ...coreNodesToDisplay,
-        ...finalConnectedNodeIDs,
-      ])
-
       validLinks = initialData.links.filter((link) => {
-        const linkW = link.weight ?? 1
-        if (linkW < minWeight || linkW > maxWeight) return false
+        if (!evaluateLinkTypes(link)) return false
 
         const sourceId =
           typeof link.source === "object" ? link.source.id : link.source
         const targetId =
           typeof link.target === "object" ? link.target.id : link.target
 
-        // For ego/union network, we show links from core to neighbor.
-        // In intersection, it helps to show links connecting core to intersection, and intersection to intersection
         const isSourceRelevant =
           coreNodesToDisplay.has(sourceId) ||
           finalConnectedNodeIDs.has(sourceId)
@@ -130,13 +177,11 @@ export const useNetworkFilter = (initialData: networkData) => {
         return isSourceRelevant && isTargetRelevant
       })
     } else {
-      // No search query: apply only type and weight filters
       const validNodes = initialData.nodes.filter(evaluateNodeTypes)
       const validNodeIds = new Set(validNodes.map((n) => n.id))
 
       validLinks = initialData.links.filter((link) => {
-        const linkW = link.weight ?? 1
-        if (linkW < minWeight || linkW > maxWeight) return false
+        if (!evaluateLinkTypes(link)) return false
 
         const sourceId =
           typeof link.source === "object" ? link.source.id : link.source
@@ -166,7 +211,27 @@ export const useNetworkFilter = (initialData: networkData) => {
       ...finalConnectedNodeIDs,
     ])
 
-    // Also ensuring isolated core nodes without ties are displayed
+    const bundledLinksMap = new Map<string, link>()
+    validLinks.forEach((l) => {
+      const sourceId = typeof l.source === "object" ? l.source.id : l.source
+      const targetId = typeof l.target === "object" ? l.target.id : l.target
+      const key = `${sourceId}->${targetId}`
+
+      if (bundledLinksMap.has(key)) {
+        const existing = bundledLinksMap.get(key)!
+        existing.count = (existing.count ?? 1) + 1
+        if (l.type && existing.type && !existing.type.includes(l.type)) {
+          existing.type += `, ${l.type}`
+        } else if (l.type && !existing.type) {
+          existing.type = l.type
+        }
+      } else {
+        bundledLinksMap.set(key, { ...l, count: 1 })
+      }
+    })
+
+    const finalLinks = Array.from(bundledLinksMap.values())
+
     const filteredNodes = initialData.nodes.filter((node) =>
       allDisplayedNodesIds.has(node.id),
     )
@@ -174,19 +239,21 @@ export const useNetworkFilter = (initialData: networkData) => {
     return {
       ...initialData,
       nodes: filteredNodes.map((n) => ({ ...n })),
-      links: validLinks.map((l) => ({ ...l })),
+      links: finalLinks,
     }
   }, [
     initialData,
     minWeight,
     maxWeight,
     selectedTypes,
-    searchQuery,
+    selectedEdgeTypes,
+    egoSearchQuery,
     intersectionMode,
   ])
 
   return {
     filteredData,
+    matchedNodeIDs,
     minWeight,
     maxWeight,
     setMinWeight,
@@ -194,8 +261,13 @@ export const useNetworkFilter = (initialData: networkData) => {
     allNodeTypes,
     selectedTypes,
     setSelectedTypes,
-    searchQuery,
-    setSearchQuery,
+    allEdgeTypes,
+    selectedEdgeTypes,
+    setSelectedEdgeTypes,
+    egoSearchQuery,
+    setEgoSearchQuery,
+    locateSearchQuery,
+    setLocateSearchQuery,
     intersectionMode,
     setIntersectionMode,
   }
