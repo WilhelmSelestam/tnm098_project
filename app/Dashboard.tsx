@@ -16,6 +16,15 @@ export default function Dashboard({ data }: DashboardProps) {
   const [showArrows, setShowArrows] = useState<boolean>(true)
   const [showLabels, setShowLabels] = useState<boolean>(false)
 
+  const [showWeirdRelationships, setShowWeirdRelationships] =
+    useState<boolean>(false)
+  const [showCircularRelationships, setShowCircularRelationships] =
+    useState<boolean>(false)
+
+  const [linkTypeForces, setLinkTypeForces] = useState<Record<string, number>>(
+    {},
+  )
+
   // console.log(hoveredNode)
 
   // Get node details for sidebar
@@ -26,10 +35,6 @@ export default function Dashboard({ data }: DashboardProps) {
   const {
     filteredData,
     matchedNodeIDs,
-    minWeight,
-    maxWeight,
-    setMinWeight,
-    setMaxWeight,
     allNodeTypes,
     selectedTypes,
     setSelectedTypes,
@@ -50,16 +55,12 @@ export default function Dashboard({ data }: DashboardProps) {
     setShowSecondDegree,
   } = useNetworkFilter(data)
 
-  const [linkTypeForces, setLinkTypeForces] = useState<Record<string, number>>(
-    {},
-  )
-
   useEffect(() => {
     if (!allEdgeTypes || allEdgeTypes.length === 0) return
     setLinkTypeForces((prev) => {
       const next = { ...prev }
       allEdgeTypes.forEach((t) => {
-        if (next[t] == null) next[t] = 0.2
+        if (next[t] == null) next[t] = 0.04
       })
       return next
     })
@@ -241,11 +242,11 @@ export default function Dashboard({ data }: DashboardProps) {
                       <div className="flex items-center justify-between mb-1">
                         <span className="truncate mr-2">{type}</span>
                         <span className="text-xs text-gray-600">
-                          {(linkTypeForces[type] ?? 0.2).toFixed(2)}
+                          {(linkTypeForces[type] ?? 0.04).toFixed(2)}
                         </span>
                       </div>
                       <Slider
-                        value={[linkTypeForces[type] ?? 0.2]}
+                        value={[linkTypeForces[type] ?? 0.04]}
                         onValueChange={(vals: number[]) =>
                           setLinkTypeForce(type, vals[0])
                         }
@@ -287,6 +288,35 @@ export default function Dashboard({ data }: DashboardProps) {
                 className="text-sm cursor-pointer select-none"
               >
                 Show Node IDs
+              </label>
+            </div>
+            <div className="flex items-center gap-2 w-full mt-2">
+              <input
+                type="checkbox"
+                id="showWeird"
+                checked={showWeirdRelationships}
+                onChange={(e) => setShowWeirdRelationships(e.target.checked)}
+              />
+              <label
+                htmlFor="showWeird"
+                className="text-sm cursor-pointer select-none text-amber-600"
+              >
+                Highlight Weird Relations
+              </label>
+            </div>
+
+            <div className="flex items-center gap-2 w-full">
+              <input
+                type="checkbox"
+                id="showCircular"
+                checked={showCircularRelationships}
+                onChange={(e) => setShowCircularRelationships(e.target.checked)}
+              />
+              <label
+                htmlFor="showCircular"
+                className="text-sm cursor-pointer select-none text-red-600"
+              >
+                Detect Circular Entities
               </label>
             </div>
           </div>
@@ -345,6 +375,8 @@ export default function Dashboard({ data }: DashboardProps) {
             force={100}
             linkTypeForces={linkTypeForces}
             highlightedNodeIDs={matchedNodeIDs}
+            showWeirdRelationships={showWeirdRelationships}
+            showCircularRelationships={showCircularRelationships}
           />
         </div>
       </div>
