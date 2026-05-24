@@ -14,6 +14,11 @@ export const useNetworkFilter = (initialData: networkData) => {
   const [locateSearchQuery, setLocateSearchQuery] = useState<string>("")
   const [pathSearchQuery, setPathSearchQuery] = useState<string>("")
   const [pathSearchDepth, setPathSearchDepth] = useState<number>(3)
+
+  // New States for Path specific queries
+  const [maxPathsCount, setMaxPathsCount] = useState<number>(3)
+  const [showPathNeighbors, setShowPathNeighbors] = useState<boolean>(false)
+
   const [intersectionMode, setIntersectionMode] = useState<boolean>(false)
   const [showSecondDegree, setShowSecondDegree] = useState<boolean>(true)
 
@@ -74,9 +79,12 @@ export const useNetworkFilter = (initialData: networkData) => {
     return new Set(matches)
   }, [initialData, locateSearchQuery, selectedTypes])
 
-  const filteredData = useMemo<networkData>(() => {
+  const filterState = useMemo(() => {
     if (!initialData || !initialData.nodes || !initialData.links) {
-      return { nodes: [], links: [] }
+      return {
+        filteredData: { nodes: [], links: [] },
+        highlightedPathLinks: new Set<string>(),
+      }
     }
 
     const egoQuery = egoSearchQuery.toLowerCase().trim()
@@ -112,9 +120,10 @@ export const useNetworkFilter = (initialData: networkData) => {
     let coreNodesToDisplay = new Set<string | number>()
     let finalConnectedNodeIDs = new Set<string | number>()
     let validLinks: link[] = []
+    let newHighlightedPathLinks = new Set<string>()
 
     if (pathQueries.length > 0) {
-      // Path Search Mode
+      // Find all matching nodes grouped by their original query terms
       const pMatches = pathQueries.map((q) =>
         initialData.nodes
           .filter(
@@ -127,66 +136,99 @@ export const useNetworkFilter = (initialData: networkData) => {
 
       const allPTargets = new Set(pMatches.flat())
 
-      if (allPTargets.size > 1) {
-        // Build adjacency list for BFS
-        const adj = new Map<string | number, (string | number)[]>()
+      if (pMatches.length > 1) {
+        const adj = new Map<string | number, Set<string | number>>()
         initialData.links.forEach((l) => {
           if (!evaluateLinkTypes(l)) return
           const u = typeof l.source === "object" ? l.source.id : l.source
           const v = typeof l.target === "object" ? l.target.id : l.target
-          if (!adj.has(u)) adj.set(u, [])
-          if (!adj.has(v)) adj.set(v, [])
-          adj.get(u)!.push(v)
-          adj.get(v)!.push(u)
+          if (!adj.has(u)) adj.set(u, new Set())
+          if (!adj.has(v)) adj.set(v, new Set())
+          adj.get(u)!.add(v)
+          adj.get(v)!.add(u)
         })
 
-        const targetArray = Array.from(allPTargets)
-        const distances = new Map<
-          string | number,
-          Map<string | number, number>
-        >()
+        const nodesOnPath = new Set<string | number>()
 
-        targetArray.forEach((t) => {
-          const dist = new Map<string | number, number>()
-          const queue: [string | number, number][] = [[t, 0]]
-          dist.set(t, 0)
+        // BFS pathfinding between matching components only
+        for (let i = 0; i < pMatches.length; i++) {
+          for (let j = i + 1; j < pMatches.length; j++) {
+            const groupA = pMatches[i]
+            const groupB = pMatches[j]
 
-          let head = 0
-          while (head < queue.length) {
-            const [curr, d] = queue[head++]
-            if (d >= pathSearchDepth) continue
+            for (const start of groupA) {
+              for (const end of groupB) {
+                if (start === end) continue
 
-            const neighbors = adj.get(curr) || []
-            for (const n of neighbors) {
-              if (!dist.has(n)) {
-                dist.set(n, d + 1)
-                queue.push([n, d + 1])
+                let queue: {
+                  current: string | number
+                  path: (string | number)[]
+                }[] = [{ current: start, path: [start] }]
+                let foundPaths: (string | number)[][] = []
+
+                while (queue.length > 0) {
+                  const { current, path } = queue.shift()!
+                  if (current === end) {
+                    foundPaths.push(path)
+                    continue
+                  }
+                  if (path.length - 1 >= pathSearchDepth) continue
+
+                  const neighbors = adj.get(current) || new Set()
+                  for (const n of neighbors) {
+                    if (!path.includes(n)) {
+                      queue.push({ current: n, path: [...path, n] })
+                    }
+                  }
+                }
+
+                if (foundPaths.length > 0) {
+                  let selectedPaths: (string | number)[][] = []
+                  let count = 0
+
+                  // foundPaths is naturally sorted by shortest distance because of BFS
+                  for (let k = 0; k < foundPaths.length; k++) {
+                    if (count < maxPathsCount) {
+                      selectedPaths.push(foundPaths[k])
+                      count++
+                    } else if (
+                      foundPaths[k].length ===
+                      selectedPaths[selectedPaths.length - 1].length
+                    ) {
+                      // Allow matching length pathways through if requested to capture same lengths
+                      selectedPaths.push(foundPaths[k])
+                    } else {
+                      break
+                    }
+                  }
+
+                  selectedPaths.forEach((p) => {
+                    for (let idx = 0; idx < p.length; idx++) {
+                      nodesOnPath.add(p[idx])
+                      if (idx < p.length - 1) {
+                        newHighlightedPathLinks.add(`${p[idx]}->${p[idx + 1]}`)
+                        newHighlightedPathLinks.add(`${p[idx + 1]}->${p[idx]}`)
+                      }
+                    }
+                  })
+                }
               }
             }
           }
-          distances.set(t, dist)
-        })
-
-        const nodesOnPath = new Set<string | number>(allPTargets)
-
-        targetArray.forEach((u, i) => {
-          for (let j = i + 1; j < targetArray.length; j++) {
-            const v = targetArray[j]
-            const distU = distances.get(u)!
-            const distV = distances.get(v)!
-
-            distU.forEach((d_u, nodeX) => {
-              if (distV.has(nodeX)) {
-                const d_v = distV.get(nodeX)!
-                if (d_u + d_v <= pathSearchDepth) {
-                  nodesOnPath.add(nodeX)
-                }
-              }
-            })
-          }
-        })
+        }
 
         nodesOnPath.forEach((n) => finalConnectedNodeIDs.add(n))
+
+        if (showPathNeighbors) {
+          initialData.links.forEach((l) => {
+            if (!evaluateLinkTypes(l)) return
+            const u = typeof l.source === "object" ? l.source.id : l.source
+            const v = typeof l.target === "object" ? l.target.id : l.target
+            if (nodesOnPath.has(u)) finalConnectedNodeIDs.add(v)
+            if (nodesOnPath.has(v)) finalConnectedNodeIDs.add(u)
+          })
+        }
+
         allPTargets.forEach((n) => coreNodesToDisplay.add(n))
 
         validLinks = initialData.links.filter((link) => {
@@ -201,11 +243,12 @@ export const useNetworkFilter = (initialData: networkData) => {
           )
         })
       } else {
-        // Fallback if only 1 target matched, just display it
+        // Fallback for 1 node match (ego behavior)
         allPTargets.forEach((n) => coreNodesToDisplay.add(n))
-        validLinks = [] // No connecting links for 1 node
+        validLinks = []
       }
     } else if (queries.length > 0) {
+      // Legacy Ego-Network Search Code...
       const queryMatches = queries.map((q) => {
         return initialData.nodes
           .filter(
@@ -257,7 +300,6 @@ export const useNetworkFilter = (initialData: networkData) => {
           }
 
           const allCoreMatches = new Set(queryMatches.flat())
-
           finalConnectedNodeIDs = intersection
           coreNodesToDisplay = allCoreMatches
         }
@@ -302,7 +344,6 @@ export const useNetworkFilter = (initialData: networkData) => {
         const targetId =
           typeof link.target === "object" ? link.target.id : link.target
 
-        // FIX: Strictly require BOTH source and target to be in the valid node set
         return validNodeIds.has(sourceId) && validNodeIds.has(targetId)
       })
 
@@ -340,9 +381,12 @@ export const useNetworkFilter = (initialData: networkData) => {
     )
 
     return {
-      ...initialData,
-      nodes: filteredNodes.map((n) => ({ ...n })),
-      links: finalLinks,
+      filteredData: {
+        ...initialData,
+        nodes: filteredNodes.map((n) => ({ ...n })),
+        links: finalLinks,
+      },
+      highlightedPathLinks: newHighlightedPathLinks,
     }
   }, [
     initialData,
@@ -351,12 +395,17 @@ export const useNetworkFilter = (initialData: networkData) => {
     selectedTypes,
     selectedEdgeTypes,
     egoSearchQuery,
+    pathSearchQuery,
+    pathSearchDepth,
+    maxPathsCount,
+    showPathNeighbors,
     intersectionMode,
     showSecondDegree,
   ])
 
   return {
-    filteredData,
+    filteredData: filterState.filteredData,
+    highlightedPathLinks: filterState.highlightedPathLinks,
     matchedNodeIDs,
     minWeight,
     maxWeight,
@@ -376,6 +425,10 @@ export const useNetworkFilter = (initialData: networkData) => {
     setPathSearchQuery,
     pathSearchDepth,
     setPathSearchDepth,
+    maxPathsCount,
+    setMaxPathsCount,
+    showPathNeighbors,
+    setShowPathNeighbors,
     intersectionMode,
     setIntersectionMode,
     showSecondDegree,

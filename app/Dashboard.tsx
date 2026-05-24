@@ -25,15 +25,13 @@ export default function Dashboard({ data }: DashboardProps) {
     {},
   )
 
-  // console.log(hoveredNode)
-
-  // Get node details for sidebar
   const selectedNodeDetails = hoveredNode
     ? data.nodes.find((n: node) => n.id === hoveredNode)
     : null
 
   const {
     filteredData,
+    highlightedPathLinks,
     matchedNodeIDs,
     allNodeTypes,
     selectedTypes,
@@ -49,6 +47,10 @@ export default function Dashboard({ data }: DashboardProps) {
     setPathSearchQuery,
     pathSearchDepth,
     setPathSearchDepth,
+    maxPathsCount,
+    setMaxPathsCount,
+    showPathNeighbors,
+    setShowPathNeighbors,
     intersectionMode,
     setIntersectionMode,
     showSecondDegree,
@@ -173,21 +175,56 @@ export default function Dashboard({ data }: DashboardProps) {
               onChange={(e) => setPathSearchQuery(e.target.value)}
               className="w-full p-2 border rounded text-sm mb-2"
             />
-            <div className="flex items-center gap-2 mb-4">
-              <label htmlFor="pathSearchDepth" className="text-sm">
-                Max Path Depth (Hops):
-              </label>
-              <input
-                type="number"
-                id="pathSearchDepth"
-                value={pathSearchDepth}
-                min={1}
-                max={6}
-                onChange={(e) =>
-                  setPathSearchDepth(parseInt(e.target.value) || 1)
-                }
-                className="w-16 p-1 border rounded text-sm"
-              />
+
+            <div className="flex flex-wrap items-center gap-2 mb-4 mt-2">
+              <div className="w-full flex items-center mb-1">
+                <label htmlFor="pathSearchDepth" className="text-sm w-36">
+                  Max Depth (Hops):
+                </label>
+                <input
+                  type="number"
+                  id="pathSearchDepth"
+                  value={pathSearchDepth}
+                  min={1}
+                  max={6}
+                  onChange={(e) =>
+                    setPathSearchDepth(parseInt(e.target.value) || 1)
+                  }
+                  className="w-16 p-1 border rounded text-sm"
+                />
+              </div>
+
+              <div className="w-full flex items-center mb-2">
+                <label htmlFor="maxPathsCount" className="text-sm w-36">
+                  Max # Paths To Display:
+                </label>
+                <input
+                  type="number"
+                  id="maxPathsCount"
+                  value={maxPathsCount}
+                  min={1}
+                  max={10}
+                  onChange={(e) =>
+                    setMaxPathsCount(parseInt(e.target.value) || 1)
+                  }
+                  className="w-16 p-1 border rounded text-sm"
+                />
+              </div>
+
+              <div className="w-full flex items-center gap-2 mt-1">
+                <input
+                  type="checkbox"
+                  id="showPathNeighbors"
+                  checked={showPathNeighbors}
+                  onChange={(e) => setShowPathNeighbors(e.target.checked)}
+                />
+                <label
+                  htmlFor="showPathNeighbors"
+                  className="text-sm cursor-pointer select-none"
+                >
+                  Show Connected Neighbor Nodes
+                </label>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2 mt-4">
@@ -375,6 +412,7 @@ export default function Dashboard({ data }: DashboardProps) {
             force={100}
             linkTypeForces={linkTypeForces}
             highlightedNodeIDs={matchedNodeIDs}
+            highlightedPathLinks={highlightedPathLinks}
             showWeirdRelationships={showWeirdRelationships}
             showCircularRelationships={showCircularRelationships}
           />
