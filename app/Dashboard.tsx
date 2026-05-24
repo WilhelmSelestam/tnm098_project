@@ -2,7 +2,7 @@
 
 import Network from "./Network"
 import { networkData, node } from "./page"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Slider } from "@/components/ui/slider"
 import { UNKNOWN_NODE_TYPE, useNetworkFilter } from "./useNetworkFilter"
 
@@ -14,7 +14,7 @@ export default function Dashboard({ data }: DashboardProps) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
 
   const [showArrows, setShowArrows] = useState<boolean>(true)
-  const [showLabels, setShowLabels] = useState<boolean>(false)
+  const [showLabels, setShowLabels] = useState<boolean>(true)
 
   const [showWeirdRelationships, setShowWeirdRelationships] =
     useState<boolean>(false)
@@ -95,7 +95,7 @@ export default function Dashboard({ data }: DashboardProps) {
     setSelectedEdgeTypes(next)
   }
 
-  const handleDoubleClickNode = (nodeId: string) => {
+  const handleDoubleClickNode = useCallback((nodeId: string) => {
     setEgoSearchQuery((prev) => {
       const parts = prev
         .split(",")
@@ -109,7 +109,7 @@ export default function Dashboard({ data }: DashboardProps) {
       }
       return prev
     })
-  }
+  }, [])
 
   return (
     <div
@@ -167,7 +167,7 @@ export default function Dashboard({ data }: DashboardProps) {
               className="w-full p-2 border rounded text-sm mb-4"
             />
 
-            <h3 className="font-semibold mb-2">Path Search (Connect Nodes)</h3>
+            <h3 className="font-semibold mb-2">Connect Nodes</h3>
             <input
               type="text"
               placeholder="e.g. Mar de la Vida, Oceanfront"
@@ -299,66 +299,72 @@ export default function Dashboard({ data }: DashboardProps) {
           </div>
           <div className="mt-6 pt-4 border-t">
             <h3 className="font-semibold mb-2">Visual Settings</h3>
-            <div className="flex items-center gap-2 mb-4">
-              <input
-                type="checkbox"
-                id="showArrows"
-                checked={showArrows}
-                onChange={(e) => setShowArrows(e.target.checked)}
-              />
-              <label
-                htmlFor="showArrows"
-                className="text-sm cursor-pointer select-none"
-              >
-                Show Arrowheads
-              </label>
-
-              <input
-                type="checkbox"
-                id="showLabels"
-                checked={showLabels}
-                onChange={(e) => setShowLabels(e.target.checked)}
-                className="ml-4"
-              />
-              <label
-                htmlFor="showLabels"
-                className="text-sm cursor-pointer select-none"
-              >
-                Show Node IDs
-              </label>
-            </div>
-            <div className="flex items-center gap-2 w-full mt-2">
-              <input
-                type="checkbox"
-                id="showWeird"
-                checked={showWeirdRelationships}
-                onChange={(e) => setShowWeirdRelationships(e.target.checked)}
-              />
-              <label
-                htmlFor="showWeird"
-                className="text-sm cursor-pointer select-none text-amber-600"
-              >
-                Highlight Weird Relations
-              </label>
-            </div>
-
-            <div className="flex items-center gap-2 w-full">
-              <input
-                type="checkbox"
-                id="showCircular"
-                checked={showCircularRelationships}
-                onChange={(e) => setShowCircularRelationships(e.target.checked)}
-              />
-              <label
-                htmlFor="showCircular"
-                className="text-sm cursor-pointer select-none text-red-600"
-              >
-                Detect Circular Entities
-              </label>
+            <div className="mb-4 flex flex-col items-start">
+              <div className="flex flex-row mt-2">
+                <input
+                  type="checkbox"
+                  id="showArrows"
+                  checked={showArrows}
+                  onChange={(e) => setShowArrows(e.target.checked)}
+                />
+                <label
+                  htmlFor="showArrows"
+                  className="text-sm cursor-pointer select-none ml-2"
+                >
+                  Show Link Directions
+                </label>
+              </div>
+              <div className="flex flex-row mt-2">
+                <input
+                  type="checkbox"
+                  id="showLabels"
+                  checked={showLabels}
+                  onChange={(e) => setShowLabels(e.target.checked)}
+                  className=""
+                />
+                <label
+                  htmlFor="showLabels"
+                  className="text-sm cursor-pointer select-none ml-2"
+                >
+                  Show Node IDs
+                </label>
+              </div>
+              <div className="flex flex-row mt-2">
+                <input
+                  type="checkbox"
+                  id="showWeird"
+                  checked={showWeirdRelationships}
+                  onChange={(e) => setShowWeirdRelationships(e.target.checked)}
+                />
+                <label
+                  htmlFor="showWeird"
+                  className="text-sm cursor-pointer select-none ml-2"
+                >
+                  Highlight Weird Relations (dashed line)
+                </label>
+              </div>
+              <div className="flex flex-row mt-2">
+                <input
+                  type="checkbox"
+                  id="showCircular"
+                  checked={showCircularRelationships}
+                  onChange={(e) =>
+                    setShowCircularRelationships(e.target.checked)
+                  }
+                />
+                <label
+                  htmlFor="showCircular"
+                  className="text-sm cursor-pointer select-none text-red-600 ml-2"
+                >
+                  Detect Circular Entities
+                </label>
+              </div>
             </div>
           </div>
           <div className="mt-auto bg-white p-4 rounded border">
-            <h3 className="font-bold border-b pb-2 mb-2">Entity Details</h3>
+            <h3 className="font-bold border-b pb-2 mb-2">
+              Selected Node Details
+            </h3>
             {selectedNodeDetails ? (
               <div className="text-sm wrap-break-word">
                 <p>
@@ -391,7 +397,7 @@ export default function Dashboard({ data }: DashboardProps) {
                 </p>
               </div>
             ) : (
-              <p className="text-sm text-gray-500 italic"></p>
+              <p className="text-sm text-gray-500 italic">No Node Selected</p>
             )}
           </div>
 

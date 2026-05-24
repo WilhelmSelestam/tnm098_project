@@ -10,17 +10,20 @@ export const useNetworkFilter = (initialData: networkData) => {
   const [selectedEdgeTypes, setSelectedEdgeTypes] = useState<Set<string>>(
     new Set(),
   )
-  const [egoSearchQuery, setEgoSearchQuery] = useState<string>("")
-  const [locateSearchQuery, setLocateSearchQuery] = useState<string>("")
+  const [egoSearchQuery, setEgoSearchQuery] = useState<string>(
+    "8327, Mar de la Vida OJSC, 979893388, Oceanfront Oasis Inc Carriers",
+  )
+  const [locateSearchQuery, setLocateSearchQuery] = useState<string>(
+    "8327, Mar de la Vida OJSC, 979893388, Oceanfront Oasis Inc Carriers",
+  )
   const [pathSearchQuery, setPathSearchQuery] = useState<string>("")
   const [pathSearchDepth, setPathSearchDepth] = useState<number>(3)
 
-  // New States for Path specific queries
   const [maxPathsCount, setMaxPathsCount] = useState<number>(3)
   const [showPathNeighbors, setShowPathNeighbors] = useState<boolean>(false)
 
   const [intersectionMode, setIntersectionMode] = useState<boolean>(false)
-  const [showSecondDegree, setShowSecondDegree] = useState<boolean>(true)
+  const [showSecondDegree, setShowSecondDegree] = useState<boolean>(false)
 
   const allNodeTypes = useMemo(() => {
     if (!initialData?.nodes) return []

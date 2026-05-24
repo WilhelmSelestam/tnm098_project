@@ -455,6 +455,9 @@ export default function StarWarsNetwork({
     showLabels,
     showWeirdRelationships,
     showCircularRelationships,
+    linkTypeForces, // <-- Add this so styles reapply when the graph redraws
+    force, // <-- Add this for safety
+    onDoubleClickNode,
   ])
 
   const drag = (simulation: d3.Simulation<node, NormalizedLink>) => {
