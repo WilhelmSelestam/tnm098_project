@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, useDeferredValue } from "react"
 import { networkData, node, link } from "./page"
 
 export const UNKNOWN_NODE_TYPE = "__unknown_node_type__"
@@ -18,6 +18,8 @@ export const useNetworkFilter = (initialData: networkData) => {
   )
   const [pathSearchQuery, setPathSearchQuery] = useState<string>("")
   const [pathSearchDepth, setPathSearchDepth] = useState<number>(3)
+
+  const deferredPathSearchDepth = useDeferredValue(pathSearchDepth)
 
   const [maxPathsCount, setMaxPathsCount] = useState<number>(3)
   const [showPathNeighbors, setShowPathNeighbors] = useState<boolean>(false)
@@ -169,41 +171,64 @@ export const useNetworkFilter = (initialData: networkData) => {
                 }[] = [{ current: start, path: [start] }]
                 let foundPaths: (string | number)[][] = []
 
+                const distances = new Map<string | number, number>()
+                distances.set(start, 0)
+
                 while (queue.length > 0) {
                   const { current, path } = queue.shift()!
+
+                  // Early exit. Once we hit our max path limit for this pair, stop searching.
+                  if (foundPaths.length >= maxPathsCount) {
+                    break
+                  }
+
                   if (current === end) {
                     foundPaths.push(path)
                     continue
                   }
-                  if (path.length - 1 >= pathSearchDepth) continue
+                  // if (path.length - 1 >= pathSearchDepth) continue
+                  if (path.length - 1 >= deferredPathSearchDepth) continue
 
                   const neighbors = adj.get(current) || new Set()
                   for (const n of neighbors) {
                     if (!path.includes(n)) {
-                      queue.push({ current: n, path: [...path, n] })
+                      // queue.push({ current: n, path: [...path, n] })
+
+                      // Prune paths that are longer than the shortest known route
+                      const nextDepth = path.length
+                      const knownDepth = distances.get(n)
+
+                      // Only explore this node if it's the first time seeing it,
+                      // or if we reached it in the same amount of steps (to find alternative equal-length paths)
+                      if (knownDepth === undefined || nextDepth <= knownDepth) {
+                        distances.set(n, nextDepth)
+                        queue.push({ current: n, path: [...path, n] })
+                      }
                     }
                   }
                 }
 
                 if (foundPaths.length > 0) {
-                  let selectedPaths: (string | number)[][] = []
-                  let count = 0
+                  // let selectedPaths: (string | number)[][] = []
+                  // let count = 0
 
                   // foundPaths is naturally sorted by shortest distance because of BFS
-                  for (let k = 0; k < foundPaths.length; k++) {
-                    if (count < maxPathsCount) {
-                      selectedPaths.push(foundPaths[k])
-                      count++
-                    } else if (
-                      foundPaths[k].length ===
-                      selectedPaths[selectedPaths.length - 1].length
-                    ) {
-                      // Allow matching length pathways through if requested to capture same lengths
-                      selectedPaths.push(foundPaths[k])
-                    } else {
-                      break
-                    }
-                  }
+                  // for (let k = 0; k < foundPaths.length; k++) {
+                  //   if (count < maxPathsCount) {
+                  //     selectedPaths.push(foundPaths[k])
+                  //     count++
+                  //   } else if (
+                  //     foundPaths[k].length ===
+                  //     selectedPaths[selectedPaths.length - 1].length
+                  //   ) {
+                  //     // Allow matching length pathways through if requested to capture same lengths
+                  //     selectedPaths.push(foundPaths[k])
+                  //   } else {
+                  //     break
+                  //   }
+                  // }
+
+                  const selectedPaths = foundPaths.slice(0, maxPathsCount)
 
                   selectedPaths.forEach((p) => {
                     for (let idx = 0; idx < p.length; idx++) {
@@ -400,6 +425,7 @@ export const useNetworkFilter = (initialData: networkData) => {
     egoSearchQuery,
     pathSearchQuery,
     pathSearchDepth,
+    deferredPathSearchDepth,
     maxPathsCount,
     showPathNeighbors,
     intersectionMode,
