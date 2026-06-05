@@ -1,33 +1,45 @@
 "use client"
 
+import { useState, useCallback } from "react"
 import Network from "./Network"
-import { networkData, node } from "./page"
-import { useState, useEffect, useCallback } from "react"
+import { NetworkData, NetworkNode } from "@/lib/types"
 import { Slider } from "@/components/ui/slider"
 import { UNKNOWN_NODE_TYPE, useNetworkFilter } from "./useNetworkFilter"
+import { getEntityId } from "@/lib/graphAlgorithms"
 
 type DashboardProps = {
-  data: networkData
+  data: NetworkData
 }
 
+/**
+ * Main application dashboard component.
+ * Displays sidebar filters (Ego-network, pathfinding connect, locate highlight, node/edge type filtering,
+ * link strengths, visual overrides) and embeds the D3 network visualization canvas.
+ */
 export default function Dashboard({ data }: DashboardProps) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
 
   const [showArrows, setShowArrows] = useState<boolean>(true)
   const [showLabels, setShowLabels] = useState<boolean>(true)
-
   const [showWeirdRelationships, setShowWeirdRelationships] =
     useState<boolean>(false)
   const [showCircularRelationships, setShowCircularRelationships] =
     useState<boolean>(false)
 
   const [linkTypeForces, setLinkTypeForces] = useState<Record<string, number>>(
-    {},
+    () => {
+      const initialForces: Record<string, number> = {}
+      // Extract unique link types directly from the initial dataset
+      const types = new Set<string>()
+      data.links.forEach((l) => {
+        if (l.type) types.add(l.type)
+      })
+      types.forEach((t) => {
+        initialForces[t] = 0.04
+      })
+      return initialForces
+    },
   )
-
-  const selectedNodeDetails = hoveredNode
-    ? data.nodes.find((n: node) => n.id === hoveredNode)
-    : null
 
   const {
     filteredData,
@@ -57,21 +69,17 @@ export default function Dashboard({ data }: DashboardProps) {
     setShowSecondDegree,
   } = useNetworkFilter(data)
 
-  useEffect(() => {
-    if (!allEdgeTypes || allEdgeTypes.length === 0) return
-    setLinkTypeForces((prev) => {
-      const next = { ...prev }
-      allEdgeTypes.forEach((t) => {
-        if (next[t] == null) next[t] = 0.04
-      })
-      return next
-    })
-  }, [allEdgeTypes])
+  // Find details of the node currently hovered by the user
+  const selectedNodeDetails = hoveredNode
+    ? data.nodes.find((n: NetworkNode) => n.id === hoveredNode)
+    : null
 
+  // Updates force strength value for a specific edge type.
   const setLinkTypeForce = (type: string, value: number) => {
     setLinkTypeForces((prev) => ({ ...prev, [type]: value }))
   }
 
+  // Toggles node type filters on/off.
   const toggleType = (type: string) => {
     const next = new Set(selectedTypes)
     if (next.has(type)) {
@@ -85,6 +93,7 @@ export default function Dashboard({ data }: DashboardProps) {
   const renderNodeTypeLabel = (type: string) =>
     type === UNKNOWN_NODE_TYPE ? "Unknown / No type" : type
 
+  // Toggles edge (link) type filters on/off.
   const toggleEdgeType = (type: string) => {
     const next = new Set(selectedEdgeTypes)
     if (next.has(type)) {
@@ -95,21 +104,25 @@ export default function Dashboard({ data }: DashboardProps) {
     setSelectedEdgeTypes(next)
   }
 
-  const handleDoubleClickNode = useCallback((nodeId: string) => {
-    setEgoSearchQuery((prev) => {
-      const parts = prev
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-      const alreadyIncluded = parts.some(
-        (p) => p.toLowerCase() === nodeId.toLowerCase(),
-      )
-      if (!alreadyIncluded) {
-        return prev ? `${prev}, ${nodeId}` : String(nodeId)
-      }
-      return prev
-    })
-  }, [])
+  // Appends double-clicked node IDs into the Ego-Network comma-separated query seed input.
+  const handleDoubleClickNode = useCallback(
+    (nodeId: string) => {
+      setEgoSearchQuery((prev) => {
+        const parts = prev
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+        const alreadyIncluded = parts.some(
+          (p) => p.toLowerCase() === nodeId.toLowerCase(),
+        )
+        if (!alreadyIncluded) {
+          return prev ? `${prev}, ${nodeId}` : String(nodeId)
+        }
+        return prev
+      })
+    },
+    [setEgoSearchQuery],
+  )
 
   return (
     <div
@@ -268,6 +281,7 @@ export default function Dashboard({ data }: DashboardProps) {
                 </button>
               )}
             </div>
+
             {allEdgeTypes.length > 0 && (
               <div className="mt-4">
                 <h4 className="text-sm font-semibold mb-2">
@@ -297,6 +311,7 @@ export default function Dashboard({ data }: DashboardProps) {
               </div>
             )}
           </div>
+
           <div className="mt-6 pt-4 border-t">
             <h3 className="font-semibold mb-2">Visual Settings</h3>
             <div className="mb-4 flex flex-col items-start">
@@ -320,7 +335,6 @@ export default function Dashboard({ data }: DashboardProps) {
                   id="showLabels"
                   checked={showLabels}
                   onChange={(e) => setShowLabels(e.target.checked)}
-                  className=""
                 />
                 <label
                   htmlFor="showLabels"
@@ -361,6 +375,7 @@ export default function Dashboard({ data }: DashboardProps) {
               </div>
             </div>
           </div>
+
           <div className="mt-auto bg-white p-4 rounded border">
             <h3 className="font-bold border-b pb-2 mb-2">
               Selected Node Details
@@ -382,10 +397,8 @@ export default function Dashboard({ data }: DashboardProps) {
                 <p className="mt-2">
                   <strong>Connections in view:</strong>{" "}
                   {filteredData.links.reduce((acc, l) => {
-                    const sourceId =
-                      typeof l.source === "object" ? l.source.id : l.source
-                    const targetId =
-                      typeof l.target === "object" ? l.target.id : l.target
+                    const sourceId = getEntityId(l.source)
+                    const targetId = getEntityId(l.target)
                     return (
                       acc +
                       (sourceId === selectedNodeDetails.id ||

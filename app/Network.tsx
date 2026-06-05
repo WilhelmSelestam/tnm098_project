@@ -2,10 +2,16 @@
 
 import { Dispatch, SetStateAction, useEffect, useRef } from "react"
 import * as d3 from "d3"
-import { node, networkData, link } from "./page"
+import { NetworkData, NetworkNode, NetworkLink } from "@/lib/types"
+import {
+  getEntityId,
+  findCircularRelationships,
+  isWeirdRelationship,
+  isHighlightedPath,
+} from "@/lib/graphAlgorithms"
 
-type StarWarsNetworkProps = {
-  data: networkData
+export type NetworkProps = {
+  data: NetworkData
   hoveredNode?: string | null
   setHoveredNode: Dispatch<SetStateAction<string | null>>
   onDoubleClickNode?: (nodeId: string) => void
@@ -19,16 +25,12 @@ type StarWarsNetworkProps = {
   showCircularRelationships?: boolean
 }
 
-type NormalizedLink = d3.SimulationLinkDatum<node> & {
-  source: string | number | node
-  target: string | number | node
-  type?: string
-  weight?: number
-  dataset?: string
-  count?: number
-}
-
-export default function StarWarsNetwork({
+/**
+ * Visualizes the entity relationship network graph using D3.js force-directed simulation inside an SVG canvas.
+ * Implements zooming, dragging, type-based link forces, circular ownership/membership detection,
+ * and visual highlighting.
+ */
+export default function Network({
   data,
   hoveredNode,
   setHoveredNode,
@@ -41,22 +43,24 @@ export default function StarWarsNetwork({
   showLabels = false,
   showWeirdRelationships = false,
   showCircularRelationships = false,
-}: StarWarsNetworkProps) {
-  const svgRef = useRef(null)
+}: NetworkProps) {
+  const svgRef = useRef<SVGSVGElement>(null)
 
   useEffect(() => {
     if (!data || !data.nodes || !data.links || !svgRef.current) return
 
-    const width = 1455
-    const height = 814
+    const width = 2230 //1455
+    const height = 1300 //814
 
+    // Clean up any existing elements before redrawing
     d3.select(svgRef.current).selectAll("*").remove()
 
-    const links: NormalizedLink[] = data.links.map((d) => ({ ...d }))
-    const nodes = data.nodes.map((d) => ({ ...d }))
+    // Create shallow copies of links and nodes to preserve raw state across simulation ticks
+    const links: NetworkLink[] = data.links.map((d) => ({ ...d }))
+    const nodes: NetworkNode[] = data.nodes.map((d) => ({ ...d }))
 
     const svg = d3
-      .select(svgRef.current)
+      .select<SVGSVGElement, unknown>(svgRef.current)
       .attr("width", width)
       .attr("height", height)
       .style("background-color", "#111")
@@ -66,6 +70,7 @@ export default function StarWarsNetwork({
 
     const mainGroup = svg.append("g").attr("class", "main-group")
 
+    // Configure zooming behaviors on the outer SVG canvas
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 10])
@@ -73,10 +78,9 @@ export default function StarWarsNetwork({
         mainGroup.attr("transform", event.transform)
       })
 
-    // @ts-ignore
     svg.call(zoom)
 
-    // Setup multiple arrow markers for different line colors
+    // Setup multiple arrow markers for different link highlight colors
     const defs = svg.append("defs")
     const createMarker = (id: string, color: string) => {
       defs
@@ -98,26 +102,26 @@ export default function StarWarsNetwork({
 
     createMarker("arrowhead", "#666")
     createMarker("arrowhead-red", "#ef4444")
-    // createMarker("arrowhead-amber", "#666") //"#f59e0b")
     createMarker("arrowhead-blue", "#3b82f6")
 
     const defaultLinkStrength = 0.1
 
+    // Initialize D3 Force-Directed Simulation
     const simulation = d3
-      .forceSimulation<node, NormalizedLink>(nodes)
+      .forceSimulation<NetworkNode, NetworkLink>(nodes)
       .force(
         "link",
         d3
-          .forceLink<node, NormalizedLink>(links)
+          .forceLink<NetworkNode, NetworkLink>(links)
           .id((d) => d.id as number | string)
-          .strength((l: any) => {
+          .strength((l) => {
             if (!l.type) return defaultLinkStrength
 
-            const types = l.type.split(",").map((t: string) => t.trim())
+            const types = l.type.split(",").map((t) => t.trim())
             let totalForce = 0
             let count = 0
 
-            types.forEach((t: string) => {
+            types.forEach((t) => {
               if (linkTypeForces && linkTypeForces[t] != null) {
                 totalForce += linkTypeForces[t]
                 count++
@@ -131,9 +135,10 @@ export default function StarWarsNetwork({
       .force("charge", d3.forceManyBody().strength(-force))
       .force("center", d3.forceCenter(width / 2, height / 2))
 
-    const link = mainGroup
+    // Draw links
+    const linkElements = mainGroup
       .append("g")
-      .selectAll("line")
+      .selectAll<SVGLineElement, NetworkLink>("line")
       .data(links)
       .enter()
       .append("line")
@@ -141,16 +146,17 @@ export default function StarWarsNetwork({
       .attr("stroke-width", (d) => Math.max(1, d.count ?? 1))
       .attr("marker-end", "url(#arrowhead)")
 
-    link.append("title").text((d) => {
-      const sourceId = typeof d.source === "object" ? d.source.id : d.source
-      const targetId = typeof d.target === "object" ? d.target.id : d.target
+    linkElements.append("title").text((d) => {
+      const sourceId = getEntityId(d.source)
+      const targetId = getEntityId(d.target)
       return `${sourceId} - ${targetId}\nType: ${d.type}\nEdges bundled: ${d.count ?? 1}`
     })
 
-    const nodeGroup = mainGroup
+    // Draw node containers with drag handles
+    const nodeGroupElements = mainGroup
       .append("g")
       .attr("class", "nodes")
-      .selectAll("g.node-group")
+      .selectAll<SVGGElement, NetworkNode>("g.node-group")
       .data(nodes)
       .enter()
       .append("g")
@@ -166,7 +172,8 @@ export default function StarWarsNetwork({
         onDoubleClickNode?.(String(d.id))
       })
 
-    const node = nodeGroup
+    // Style the circular node nodes based on entity types
+    nodeGroupElements
       .append("circle")
       .attr("r", 5)
       .attr("fill", (d) => {
@@ -192,7 +199,8 @@ export default function StarWarsNetwork({
         }
       })
 
-    nodeGroup
+    // Add identifier text to the nodes
+    nodeGroupElements
       .append("text")
       .text((d) => String(d.id))
       .attr("x", 8)
@@ -201,21 +209,25 @@ export default function StarWarsNetwork({
       .style("fill", "#ccc")
       .style("pointer-events", "none")
 
-    nodeGroup
+    nodeGroupElements
       .append("title")
       .text(
         (d) =>
           `${d.id}\nType: ${d.type || "Unknown"}\nCountry: ${d.country || "N/A"}`,
       )
 
+    // Tick callback updates node and link positions dynamically
     simulation.on("tick", () => {
-      link
-        .attr("x1", (d) => (d.source as node).x ?? 0)
-        .attr("y1", (d) => (d.source as node).y ?? 0)
-        .attr("x2", (d) => (d.target as node).x ?? 0)
-        .attr("y2", (d) => (d.target as node).y ?? 0)
+      linkElements
+        .attr("x1", (d) => (d.source as NetworkNode).x ?? 0)
+        .attr("y1", (d) => (d.source as NetworkNode).y ?? 0)
+        .attr("x2", (d) => (d.target as NetworkNode).x ?? 0)
+        .attr("y2", (d) => (d.target as NetworkNode).y ?? 0)
 
-      nodeGroup.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`)
+      nodeGroupElements.attr(
+        "transform",
+        (d) => `translate(${d.x ?? 0},${d.y ?? 0})`,
+      )
     })
 
     return () => {
@@ -223,6 +235,7 @@ export default function StarWarsNetwork({
     }
   }, [data, setHoveredNode, onDoubleClickNode, force, linkTypeForces])
 
+  // Effect to apply dynamic visual highlights on hover or search query changes
   useEffect(() => {
     if (!svgRef.current) return
     const svg = d3.select(svgRef.current)
@@ -232,214 +245,81 @@ export default function StarWarsNetwork({
 
     if (hoveredNode) {
       connectedNodes.add(hoveredNode)
-      svg.selectAll("line").each((d: any) => {
-        const sourceId = typeof d.source === "object" ? d.source.id : d.source
-        const targetId = typeof d.target === "object" ? d.target.id : d.target
+      svg.selectAll<SVGLineElement, NetworkLink>("line").each((d) => {
+        const sourceId = getEntityId(d.source)
+        const targetId = getEntityId(d.target)
         if (sourceId === hoveredNode) connectedNodes.add(targetId)
         if (targetId === hoveredNode) connectedNodes.add(sourceId)
       })
     }
 
     svg
-      .selectAll<SVGGElement, node>("g.node-group")
-      .attr("opacity", (d: any) => {
-        if (
-          hoveredNode &&
-          !connectedNodes.has(d.id) &&
-          !(hasHighlightQuery && highlightedNodeIDs.has(d.id))
-        )
-          return 1
-        if (hasHighlightQuery && !highlightedNodeIDs.has(d.id) && !hoveredNode)
-          return 1
-        return 1
-      })
+      .selectAll<SVGGElement, NetworkNode>("g.node-group")
+      .attr("opacity", () => 1)
 
+    // Adjust stroke and radius of circles based on selection/highlights
     svg
-      .selectAll<SVGCircleElement, node>("g.node-group circle")
-      .attr("stroke", (d: any) => {
+      .selectAll<SVGCircleElement, NetworkNode>("g.node-group circle")
+      .attr("stroke", (d) => {
         if (d.id === hoveredNode) return "white"
         if (hasHighlightQuery && highlightedNodeIDs.has(d.id)) return "#f59e0b"
         return null
       })
-      .attr("stroke-width", (d: any) => {
+      .attr("stroke-width", (d) => {
         if (d.id === hoveredNode) return 2
         if (hasHighlightQuery && highlightedNodeIDs.has(d.id)) return 3
         return null
       })
-      .attr("r", (d: any) => {
+      .attr("r", (d) => {
         const isHighlighted = hasHighlightQuery && highlightedNodeIDs.has(d.id)
         const baseRadius = isHighlighted ? 7 : 5
         return d.id === hoveredNode ? baseRadius + 3 : baseRadius
       })
 
-    // --- ALGORITHMS: Detect Circular and Weird Relationships ---
+    // Compute circular relationship cycles via Tarjan's algorithm
+    const linksArray: NetworkLink[] = []
+    svg.selectAll<SVGLineElement, NetworkLink>("line").each((d) => {
+      linksArray.push(d)
+    })
+    const cyclicLinks = showCircularRelationships
+      ? findCircularRelationships(linksArray)
+      : new Set<NetworkLink>()
 
-    const cyclicLinks = new Set<any>()
-    if (showCircularRelationships) {
-      const adj = new Map<string | number, any[]>()
-      const nodesInvolved = new Set<string | number>()
-
-      svg.selectAll("line").each((d: any) => {
-        const types = (d.type || "")
-          .toLowerCase()
-          .split(",")
-          .map((x: string) => x.trim())
-        if (types.includes("ownership") || types.includes("membership")) {
-          const sourceId = typeof d.source === "object" ? d.source.id : d.source
-          const targetId = typeof d.target === "object" ? d.target.id : d.target
-          if (!adj.has(sourceId)) adj.set(sourceId, [])
-          adj.get(sourceId)!.push({ target: targetId, link: d })
-          nodesInvolved.add(sourceId)
-          nodesInvolved.add(targetId)
-        }
-      })
-
-      let index = 0
-      const indices = new Map<string | number, number>()
-      const lowlinks = new Map<string | number, number>()
-      const stack: (string | number)[] = []
-      const onStack = new Set<string | number>()
-      const sccs: (string | number)[][] = []
-
-      function strongconnect(v: string | number) {
-        indices.set(v, index)
-        lowlinks.set(v, index)
-        index++
-        stack.push(v)
-        onStack.add(v)
-
-        const neighbors = adj.get(v) || []
-        for (const edge of neighbors) {
-          const w = edge.target
-          if (!indices.has(w)) {
-            strongconnect(w)
-            lowlinks.set(v, Math.min(lowlinks.get(v)!, lowlinks.get(w)!))
-          } else if (onStack.has(w)) {
-            lowlinks.set(v, Math.min(lowlinks.get(v)!, indices.get(w)!))
-          }
-        }
-
-        if (lowlinks.get(v) === indices.get(v)) {
-          const scc: (string | number)[] = []
-          let w: string | number
-          do {
-            w = stack.pop()!
-            onStack.delete(w)
-            scc.push(w)
-          } while (w !== v)
-          if (scc.length > 1) {
-            sccs.push(scc)
-          }
-        }
-      }
-
-      for (const v of nodesInvolved) {
-        if (!indices.has(v)) strongconnect(v)
-      }
-
-      const sccMap = new Map<string | number, number>()
-      sccs.forEach((scc, i) => {
-        scc.forEach((node) => sccMap.set(node, i))
-      })
-
-      svg.selectAll("line").each((d: any) => {
-        const sourceId = typeof d.source === "object" ? d.source.id : d.source
-        const targetId = typeof d.target === "object" ? d.target.id : d.target
-        if (
-          sccMap.has(sourceId) &&
-          sccMap.has(targetId) &&
-          sccMap.get(sourceId) === sccMap.get(targetId)
-        ) {
-          cyclicLinks.add(d)
-        }
-      })
-    }
-
-    const isWeirdRelationship = (d: any) => {
-      const s = typeof d.source === "object" ? d.source : null
-      const t = typeof d.target === "object" ? d.target : null
-      if (!s || !t) return false
-
-      const sourceType = (s.type || "").toLowerCase()
-      const targetType = (t.type || "").toLowerCase()
-      const linkTypes = (d.type || "")
-        .toLowerCase()
-        .split(",")
-        .map((x: string) => x.trim())
-
-      for (const linkType of linkTypes) {
-        if (
-          (linkType === "ownership" || linkType === "membership") &&
-          targetType === "person"
-        ) {
-          if (
-            ["company", "organization", "political_organization"].includes(
-              sourceType,
-            )
-          )
-            return true
-        }
-        if (
-          linkType === "family_relationship" &&
-          (sourceType !== "person" || targetType !== "person")
-        ) {
-          return true
-        }
-        if (linkType === "ownership" && sourceType === "vessel") {
-          return true
-        }
-      }
-      return false
-    }
-
-    // Determine if this exact path should be blue
-    const isHighlightedPath = (d: any) => {
-      if (!highlightedPathLinks) return false
-      const sourceId = typeof d.source === "object" ? d.source.id : d.source
-      const targetId = typeof d.target === "object" ? d.target.id : d.target
-      return (
-        highlightedPathLinks.has(`${sourceId}->${targetId}`) ||
-        highlightedPathLinks.has(`${targetId}->${sourceId}`)
-      )
-    }
-
-    // Apply combined styles to links
+    // Apply styles (opacity, color, thickness, and dashed outlines) to links
     svg
-      .selectAll("line")
-      .attr("opacity", (d: any) => {
+      .selectAll<SVGLineElement, NetworkLink>("line")
+      .attr("opacity", (d) => {
         if (hoveredNode) {
-          const sourceId = typeof d.source === "object" ? d.source.id : d.source
-          const targetId = typeof d.target === "object" ? d.target.id : d.target
+          const sourceId = getEntityId(d.source)
+          const targetId = getEntityId(d.target)
           return sourceId === hoveredNode || targetId === hoveredNode ? 1 : 0.05
         }
         return 1
       })
-      .attr("stroke", (d: any) => {
+      .attr("stroke", (d) => {
         if (showCircularRelationships && cyclicLinks.has(d)) return "#ef4444"
-        // if (showWeirdRelationships && isWeirdRelationship(d)) return "#6666" //"#f59e0b"
-        if (isHighlightedPath(d)) return "#3b82f6"
+        if (isHighlightedPath(d, highlightedPathLinks)) return "#3b82f6"
         return "#6666" // Base color
       })
-      .attr("stroke-width", (d: any) => {
+      .attr("stroke-width", (d) => {
         const baseWidth = Math.max(1, d.count ?? 1)
         if (showCircularRelationships && cyclicLinks.has(d))
           return baseWidth + 2
         if (showWeirdRelationships && isWeirdRelationship(d))
           return baseWidth + 1
-        if (isHighlightedPath(d)) return baseWidth + 1
+        if (isHighlightedPath(d, highlightedPathLinks)) return baseWidth + 1
         return baseWidth
       })
-      .attr("stroke-dasharray", (d: any) => {
+      .attr("stroke-dasharray", (d) => {
         if (showWeirdRelationships && isWeirdRelationship(d)) return "5,5"
         return "none"
       })
-      .attr("marker-end", (d: any) => {
+      .attr("marker-end", (d) => {
         if (!showArrows) return null
         if (showCircularRelationships && cyclicLinks.has(d))
           return "url(#arrowhead-red)"
-        // if (showWeirdRelationships && isWeirdRelationship(d))
-        //   return "url(#arrowhead-amber)"
-        if (isHighlightedPath(d)) return "url(#arrowhead-blue)"
+        if (isHighlightedPath(d, highlightedPathLinks))
+          return "url(#arrowhead-blue)"
         return "url(#arrowhead)"
       })
 
@@ -455,36 +335,46 @@ export default function StarWarsNetwork({
     showLabels,
     showWeirdRelationships,
     showCircularRelationships,
-    linkTypeForces, // <-- Add this so styles reapply when the graph redraws
-    force, // <-- Add this for safety
+    linkTypeForces,
+    force,
     onDoubleClickNode,
   ])
-
-  const drag = (simulation: d3.Simulation<node, NormalizedLink>) => {
-    function dragstarted(event: d3.D3DragEvent<SVGGElement, node, node>) {
-      if (!event.active) simulation.alphaTarget(0.3).restart()
-      event.subject.fx = event.subject.x
-      event.subject.fy = event.subject.y
-    }
-    function dragged(event: d3.D3DragEvent<SVGGElement, node, node>) {
-      event.subject.fx = event.x
-      event.subject.fy = event.y
-    }
-    function dragended(event: d3.D3DragEvent<SVGGElement, node, node>) {
-      if (!event.active) simulation.alphaTarget(0)
-      event.subject.fx = null
-      event.subject.fy = null
-    }
-    return d3
-      .drag<SVGGElement, node>()
-      .on("start", dragstarted)
-      .on("drag", dragged)
-      .on("end", dragended)
-  }
 
   return (
     <div className="network-container">
       <svg ref={svgRef}></svg>
     </div>
   )
+}
+
+/**
+ * Static utility function to configure D3 drag gestures for network nodes.
+ * Declared at the module level to avoid hoisting and closure re-creation issues inside React.
+ */
+function drag(simulationInstance: d3.Simulation<NetworkNode, NetworkLink>) {
+  function dragstarted(
+    event: d3.D3DragEvent<SVGGElement, NetworkNode, NetworkNode>,
+  ) {
+    if (!event.active) simulationInstance.alphaTarget(0.3).restart()
+    event.subject.fx = event.subject.x
+    event.subject.fy = event.subject.y
+  }
+  function dragged(
+    event: d3.D3DragEvent<SVGGElement, NetworkNode, NetworkNode>,
+  ) {
+    event.subject.fx = event.x
+    event.subject.fy = event.y
+  }
+  function dragended(
+    event: d3.D3DragEvent<SVGGElement, NetworkNode, NetworkNode>,
+  ) {
+    if (!event.active) simulationInstance.alphaTarget(0)
+    event.subject.fx = null
+    event.subject.fy = null
+  }
+  return d3
+    .drag<SVGGElement, NetworkNode>()
+    .on("start", dragstarted)
+    .on("drag", dragged)
+    .on("end", dragended)
 }
